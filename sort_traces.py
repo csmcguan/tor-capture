@@ -8,19 +8,19 @@ def load_trace(f):
     trace[:,0] -= trace[0][0]
     return trace
 
-def dump(trace, fname):
+def dump_trace(trace, fname):
     global dst
     with open(os.path.join(dst, fname), "w") as fp:
         for pkt in trace:
             fp.write("{:.4f}\t{}\n".format(pkt[0], pkt[1]))
 
-def simulate(p):
+def sort_trace(p):
     trace = load_trace(p)
-    dump(trace, p.split('/')[-1])
+    dump_trace(trace, p.split('/')[-1])
 
 def parallel(flist, n_jobs=25):
     pool = mp.Pool(n_jobs)
-    pool.map(simulate, flist)
+    pool.map(sort_trace, flist)
 
 if __name__ == '__main__':
     global src
