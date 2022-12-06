@@ -1,0 +1,273 @@
+diff --git a/src/core/or/channel.c b/src/core/or/channel.c
+index 1ac029c152..2f192d595d 100644
+--- a/src/core/or/channel.c
++++ b/src/core/or/channel.c
+@@ -84,6 +84,9 @@
+ 
+ #include "core/or/cell_queue_st.h"
+ 
++#include "core/or/clpacket.h"
++#include "core/or/emitter.h"
++
+ /* Global lists of channels */
+ 
+ /* All channel_t instances */
+@@ -1422,6 +1425,7 @@ write_packed_cell(channel_t *chan, packed_cell_t *cell)
+   int ret = -1;
+   size_t cell_bytes;
+   uint8_t command = packed_cell_get_command(cell, chan->wide_circ_ids);
++  struct clpacket *clpkt;
+ 
+   tor_assert(chan);
+   tor_assert(cell);
+@@ -1466,6 +1470,12 @@ write_packed_cell(channel_t *chan, packed_cell_t *cell)
+       rep_hist_padding_count_write(PADDING_TYPE_ENABLED_CELL);
+   }
+ 
++  /* send cell to cell loger */
++  clpkt = create_clpacket();
++  fill_clpacket(clpkt, OUTGOING);
++  send_clpacket(clpkt);
++  destroy_clpacket(clpkt);
++
+  done:
+   return ret;
+ }
+@@ -1975,11 +1985,19 @@ channel_listener_queue_incoming(channel_listener_t *listener,
+ void
+ channel_process_cell(channel_t *chan, cell_t *cell)
+ {
++  struct clpacket *clpkt;
++
+   tor_assert(chan);
+   tor_assert(CHANNEL_IS_CLOSING(chan) || CHANNEL_IS_MAINT(chan) ||
+              CHANNEL_IS_OPEN(chan));
+   tor_assert(cell);
+ 
++  /* send the cell to cell logger */
++  clpkt = create_clpacket();
++  fill_clpacket(clpkt, INCOMING);
++  send_clpacket(clpkt);
++  destroy_clpacket(clpkt);
++
+   /* Nothing we can do if we have no registered cell handlers */
+   if (!chan->cell_handler)
+     return;
+diff --git a/src/core/or/clpacket.c b/src/core/or/clpacket.c
+new file mode 100644
+index 0000000000..f91c65bc11
+--- /dev/null
++++ b/src/core/or/clpacket.c
+@@ -0,0 +1,41 @@
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++#include <arpa/inet.h>
++
++#include "core/or/clpacket.h"
++
++/* malloc a packet */
++struct clpacket * create_clpacket(void) {
++	struct clpacket *clpkt;
++
++	clpkt = malloc(sizeof(struct clpacket));
++
++	if (clpkt == NULL) {
++		fprintf(stderr, "[!] failed to allocate memory for packet\n");
++		return (clpkt);
++	}
++
++	return (clpkt);
++}
++
++void destroy_clpacket(struct clpacket *clpkt)
++{
++	free(clpkt);
++}
++
++/* pack packet contents into buffer */
++void serialize_clpacket(char *buf, struct clpacket *clpkt)
++{
++	buf[0] = clpkt->header;
++	*(uint32_t *)(buf + 1) = htonl(clpkt->tspec.tv_sec);
++	*(uint32_t *)(buf + 5) = htonl(clpkt->tspec.tv_nsec);
++}
++
++/* unpack buffer into packet */
++void unserialize_clpacket(char *buf, struct clpacket *clpkt)
++{
++	clpkt->header = buf[0];
++	clpkt->tspec.tv_sec = ntohl(*(uint32_t *)(buf + 1));
++	clpkt->tspec.tv_nsec = ntohl(*(uint32_t *)(buf + 5));
++}
+diff --git a/src/core/or/clpacket.h b/src/core/or/clpacket.h
+new file mode 100644
+index 0000000000..34040f90ff
+--- /dev/null
++++ b/src/core/or/clpacket.h
+@@ -0,0 +1,31 @@
++#ifndef CELL_LOGGER_PACKET_H_
++#define CELL_LOGGER_PACKET_H_
++
++#include <inttypes.h>
++#include <sys/socket.h>
++#include <time.h>
++
++#define CLPACKET_SIZE 9
++
++/* headers */
++#define INCOMING	0x01    /* incoming tor cell */
++#define OUTGOING	0x02    /* outgoing tor cell */
++#define SHUTDOWN	0x03    /* shutdown logger */
++
++#define GOOD_PACK 	1
++#define BAD_PACK	2
++#define CLOSE_CONN	3
++
++struct clpacket {
++	unsigned char header;
++	struct timespec tspec;
++	uint8_t command;
++	uint32_t circ_id;
++};
++
++struct clpacket * create_clpacket(void);
++void destroy_clpacket(struct clpacket *clpkt);
++void serialize_clpacket(char *buf, struct clpacket *clpkt);
++void unserialize_clpacket(char *buf, struct clpacket *clpkt);
++
++#endif
+diff --git a/src/core/or/emitter.c b/src/core/or/emitter.c
+new file mode 100644
+index 0000000000..5ca6c881a2
+--- /dev/null
++++ b/src/core/or/emitter.c
+@@ -0,0 +1,81 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/types.h>
++#include <unistd.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++#include <netdb.h>
++#include <time.h>
++
++#include "core/or/circuit_st.h"
++#include "core/or/cell_st.h"
++#include "core/or/cell_queue_st.h"
++#include "core/or/channel.h"
++#include "core/or/clpacket.h"
++#include "core/or/emitter.h"
++
++int get_socket(void)
++{
++	int sockfd, status;
++	struct addrinfo hints, *iplist, *ip_ptr;
++
++	memset(&hints, 0, sizeof(hints));
++	hints.ai_family = AF_UNSPEC;
++	hints.ai_socktype = SOCK_DGRAM;
++	hints.ai_flags = AI_PASSIVE;
++
++	if ((status = getaddrinfo(NULL, DSTPORT, &hints, &iplist)) != 0) {
++		fprintf(stderr, "[!] getaddrinfo() failed with: %s\n", gai_strerror(status));
++		exit(1);
++	}
++
++	/* get socket */
++	for (ip_ptr = iplist; ip_ptr != NULL; ip_ptr = ip_ptr->ai_next) {
++		sockfd = socket(ip_ptr->ai_family, ip_ptr->ai_socktype, ip_ptr->ai_protocol);
++
++		if (sockfd == -1) continue;
++
++		break;
++	}
++
++	/* done with this */
++	freeaddrinfo(iplist);
++
++	if (ip_ptr == NULL) {
++		close(sockfd);
++		return (-1);
++	}
++
++	if ((connect(sockfd, (struct sockaddr *)ip_ptr->ai_addr, ip_ptr->ai_addrlen)) == -1) {
++		close(sockfd);
++		return (-1);
++	}
++
++	return (sockfd);
++}
++
++void fill_clpacket(struct clpacket *clpkt, int direction)
++{
++	struct timespec tspec;
++
++	clock_gettime(CLOCK_REALTIME, &tspec);
++	clpkt->header = direction;
++	clpkt->tspec.tv_sec = tspec.tv_sec;
++	clpkt->tspec.tv_nsec = tspec.tv_nsec;
++}
++
++void send_clpacket(struct clpacket *clpkt)
++{
++	int sockfd;
++	char buf[CLPACKET_SIZE];
++
++	if ((sockfd = get_socket()) == -1)
++		return;
++
++	memset(buf, 0, CLPACKET_SIZE);
++	serialize_clpacket(buf, clpkt);
++	send(sockfd, buf, CLPACKET_SIZE, 0);
++	close(sockfd);
++}
+diff --git a/src/core/or/emitter.h b/src/core/or/emitter.h
+new file mode 100644
+index 0000000000..04a5661ae1
+--- /dev/null
++++ b/src/core/or/emitter.h
+@@ -0,0 +1,15 @@
++#ifndef EMITTER_H_
++#define EMITTER_H_
++
++#include "core/or/cell_st.h"
++#include "core/or/cell_queue_st.h"
++#include "core/or/channel.h"
++#include "core/or/clpacket.h"
++
++#define DSTPORT "7000"
++
++int get_socket(void);
++void fill_clpacket(struct clpacket *clpkt, int direction);
++void send_clpacket(struct clpacket *clpkt);
++
++#endif
+diff --git a/src/core/or/include.am b/src/core/or/include.am
+index 7c42268c46..f86962bdcf 100644
+--- a/src/core/or/include.am
++++ b/src/core/or/include.am
+@@ -34,7 +34,9 @@ LIBTOR_APP_A_SOURCES += 				\
+ 	src/core/or/scheduler_vanilla.c		\
+ 	src/core/or/sendme.c			\
+ 	src/core/or/status.c			\
+-	src/core/or/versions.c
++	src/core/or/versions.c          \
++    src/core/or/clpacket.c          \
++    src/core/or/emitter.c
+ 
+ # ADD_C_FILE: INSERT HEADERS HERE.
+ noinst_HEADERS +=					\
+@@ -96,7 +98,9 @@ noinst_HEADERS +=					\
+ 	src/core/or/status.h				\
+ 	src/core/or/tor_version_st.h			\
+ 	src/core/or/var_cell_st.h			\
+-	src/core/or/versions.h
++	src/core/or/versions.h              \
++    src/core/or/clpacket.h              \
++    src/core/or/emitter.h
+ 
+ if USE_TRACING_INSTRUMENTATION_LTTNG
+ LIBTOR_APP_A_SOURCES += \
