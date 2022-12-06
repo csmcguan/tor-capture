@@ -84,8 +84,8 @@ for CONFIG in "undefended" $(ls $ADDON_DIR); do
                         rm $READY
                     fi
 
-                    # check if trace is long enough
-                    FILE="./log/undefended/$LABEL-$CAPTURE.cell"
+                    # check if we got a trace
+                    FILE="./log/$CONFIG/$LABEL-$CAPTURE.cell"
                     if [ -f $FILE ]; then
                         GOOD_TRACE=true
                     fi
