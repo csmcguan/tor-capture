@@ -16,7 +16,7 @@ RUN sh autogen.sh && ./configure && make && make install
 RUN useradd -rm tor
 
 RUN cp /usr/local/etc/tor/torrc.sample /usr/local/etc/tor/torrc \
-    && echo "SocksPort 0.0.0.0:9050" > /usr/local/etc/tor/torrc
+    && echo "SocksPort 0.0.0.0:9050" >> /usr/local/etc/tor/torrc
 
 EXPOSE 9050
 USER tor

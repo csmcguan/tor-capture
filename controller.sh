@@ -48,7 +48,6 @@ for CONFIG in "undefended" $(ls $ADDON_DIR); do
                         # check that cell logger is ready
                         TRIES=0
                         while [ $TRIES -lt 5 ] && [ ! -f $READY ] && [ "$(cat $READY 2> /dev/null)" != "1" ]; do
-                            echo $(cat $READY)
                             TRIES=$((TRIES+1))
                             sleep 1
                         done
