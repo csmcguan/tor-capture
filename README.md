@@ -32,7 +32,7 @@ The cell logger captures and stores the cells emitted from Tor for each trace in
 make
 ```
 ### Extensions
-The controller will look for any extensions implemented using [Mozilla Browser Extensions](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions) in the ./visit/addon/ directory. An example is [here]() which implements half duplex communication for the Walkie-Talkie and Tail Time website fingerprinting defenses. To add any extensions to the capture, place their .xpi file in the ./visit/addon/ directory.
+The controller will look for any extensions implemented using [Mozilla Browser Extensions](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions) in the ./visit/addon/ directory. An example is [here](https://github.com/colmanmcguan/tail-time) which implements half duplex communication for the Walkie-Talkie and Tail Time website fingerprinting defenses. To add any extensions to the capture, place their .xpi file in the ./visit/addon/ directory.
 ### Dataset
 The websites captured consists of those listed in the websites.txt file. A sample is provided. In the original work, the top 100 websites from the [Alexa Top Sites](http://s3.amazonaws.com/alexa-static/top-1m.csv.zip) (this link will start a download) are used after removing duplicate and localized domains. 
 ## Trace Capture
@@ -46,4 +46,4 @@ The traces need to be sorted since they are collected using UDP packets.
 python3 sort_traces.py
 ```
 ## Reference
-J. Liang, C. Yu, K. Suh and H. Han, "Tail Time Defense Against Website Fingerprinting Attacks," in IEEE Access, vol. 10, pp. 18516-18525, 2022, doi: [10.1109/ACCESS.2022.3146236](10.1109/ACCESS.2022.3146236).
+J. Liang, C. Yu, K. Suh and H. Han, "Tail Time Defense Against Website Fingerprinting Attacks," in IEEE Access, vol. 10, pp. 18516-18525, 2022, doi: [10.1109/ACCESS.2022.3146236](https://10.1109/ACCESS.2022.3146236).
