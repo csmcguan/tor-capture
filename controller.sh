@@ -44,7 +44,7 @@ for CONFIG in "undefended" $(ls $ADDON_DIR); do
                     if [ $? -eq 0 ]; then
                         # start cell logger
                         echo "controller: starting cell logger"
-                        ./cell-logger/clogger undefended $LABEL-$CAPTURE.cell &
+                        ./cell-logger/clogger $CONFIG $LABEL-$CAPTURE.cell &
                         # check that cell logger is ready
                         TRIES=0
                         while [ $TRIES -lt 5 ] && [ ! -f $READY ] && [ "$(cat $READY 2> /dev/null)" != "1" ]; do
